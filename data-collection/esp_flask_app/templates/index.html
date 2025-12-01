@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ESP32 Camera Labeler (Flask)</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 16px;
+    }
+    h1 { margin-top: 0; }
+    h2 { margin-bottom: 6px; }
+    button {
+      padding: 6px 12px;
+      margin-right: 8px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: #1d4ed8;
+      color: white;
+      font-size: 0.9rem;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    input[type="number"] {
+      width: 80px;
+    }
+    #liveContainer, #labelContainer {
+      margin-top: 16px;
+      background: #020617;
+      padding: 12px;
+      border-radius: 8px;
+    }
+    #liveFrame, #enhancedImg, #chunkImg {
+      max-width: 100%;
+      max-height: 60vh;
+      display: block;
+    }
+    #status {
+      margin-top: 12px;
+      white-space: pre-wrap;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      max-height: 160px;
+      overflow-y: auto;
+      background: #020617;
+      padding: 8px;
+      border-radius: 8px;
+    }
+    .container {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .pane {
+      flex: 1;
+      min-width: 280px;
+    }
+    .chunk-preview {
+      border: 2px solid #38bdf8;
+      max-width: 200px;
+    }
+    .label-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .meta {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+    /* New: wrapper + overlay for current chunk */
+    #enhancedWrapper {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #chunkOverlay {
+      position: absolute;
+      border: 2px solid #f97316; /* orange border around current chunk */
+      box-sizing: border-box;
+      pointer-events: none;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 Camera Labeler (Flask + Serial)</h1>
+
+  <!-- LIVE PREVIEW SECTION -->
+  <div id="liveContainer">
+    <h2>Live Preview</h2>
+    <button id="captureBtn">Capture Once</button>
+    <button id="startLiveBtn">Start Live</button>
+    <button id="stopLiveBtn" disabled>Stop Live</button>
+    <div style="margin-top:8px;">
+      <img id="liveFrame" alt="No frame yet">
+    </div>
+  </div>
+
+  <!-- LABELING SECTION -->
+  <div id="labelContainer">
+    <h2>Labeling from Capture</h2>
+    <form id="prepForm">
+      <label>Chunk size (px):
+        <input type="number" name="chunk_size" value="40" min="5">
+      </label>
+      <button type="submit">Capture & Prepare for Labeling</button>
+    </form>
+    <p class="meta" id="prepInfo"></p>
+
+    <div class="container" style="margin-top:8px; display:none;" id="labelUI">
+      <div class="pane">
+        <h3>Enhanced Image</h3>
+        <!-- New wrapper with overlay -->
+        <div id="enhancedWrapper">
+          <img id="enhancedImg" alt="Enhanced image">
+          <div id="chunkOverlay"></div>
+        </div>
+        <p class="meta" id="gridInfo"></p>
+      </div>
+      <div class="pane">
+        <h3>Current Chunk</h3>
+        <img id="chunkImg" class="chunk-preview" alt="Chunk">
+        <p class="meta" id="chunkMeta"></p>
+        <div class="label-buttons" id="labelButtons"></div>
+        <button id="skipBtn" style="margin-top:8px; background:#6b7280;">Skip (N/A)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <script>
+    // --- Live preview controls ---
+    const captureBtn = document.getElementById('captureBtn');
+    const startLiveBtn = document.getElementById('startLiveBtn');
+    const stopLiveBtn = document.getElementById('stopLiveBtn');
+    const liveFrame = document.getElementById('liveFrame');
+    const statusEl = document.getElementById('status');
+
+    let liveTimer = null;
+
+    function log(msg) {
+      console.log(msg);
+      statusEl.textContent += msg + '\n';
+      statusEl.scrollTop = statusEl.scrollHeight;
+    }
+
+    function loadLiveFrame() {
+      const url = '/frame?_=' + Date.now();
+      liveFrame.src = url;
+      liveFrame.onerror = () => {
+        log('Error loading live frame.');
+      };
+    }
+
+    captureBtn.addEventListener('click', () => {
+      loadLiveFrame();
+    });
+
+    startLiveBtn.addEventListener('click', () => {
+      if (liveTimer !== null) return;
+      log('Starting live preview...');
+      loadLiveFrame();
+      liveTimer = setInterval(loadLiveFrame, 300); // adjust interval as needed
+      startLiveBtn.disabled = true;
+      stopLiveBtn.disabled = false;
+    });
+
+    stopLiveBtn.addEventListener('click', () => {
+      if (liveTimer !== null) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+        log('Stopped live preview.');
+      }
+      startLiveBtn.disabled = false;
+      stopLiveBtn.disabled = true;
+    });
+
+    // --- Labeling UI ---
+    const prepForm = document.getElementById('prepForm');
+    const prepInfo = document.getElementById('prepInfo');
+    const labelUI = document.getElementById('labelUI');
+    const enhancedImg = document.getElementById('enhancedImg');
+    const gridInfo = document.getElementById('gridInfo');
+    const chunkImg = document.getElementById('chunkImg');
+    const chunkMeta = document.getElementById('chunkMeta');
+    const labelButtonsDiv = document.getElementById('labelButtons');
+    const skipBtn = document.getElementById('skipBtn');
+    const chunkOverlay = document.getElementById('chunkOverlay');
+
+    const labels = ["A","2","3","4","5","6","7","8","9","10","J","Q","K","NA"];
+    let rows = 0, cols = 0;
+    let currentRow = 0, currentCol = 0;
+
+    // New: track original enhanced image size + chunk size
+    let imgWidth = 0, imgHeight = 0, chunkSize = 40;
+
+    function createLabelButtons() {
+      labelButtonsDiv.innerHTML = "";
+      labels.forEach(lbl => {
+        const btn = document.createElement("button");
+        btn.textContent = lbl;
+        btn.addEventListener("click", () => {
+          labelCurrent(lbl);
+        });
+        labelButtonsDiv.appendChild(btn);
+      });
+    }
+
+    // New: update overlay rectangle based on current chunk
+    function updateOverlay() {
+      if (!imgWidth || !imgHeight) {
+        chunkOverlay.style.display = 'none';
+        return;
+      }
+
+      const displayedWidth = enhancedImg.clientWidth;
+      const displayedHeight = enhancedImg.clientHeight;
+      if (!displayedWidth || !displayedHeight) {
+        chunkOverlay.style.display = 'none';
+        return;
+      }
+
+      const cs = chunkSize;
+
+      const x0 = currentCol * cs;
+      const y0 = currentRow * cs;
+      const x1 = Math.min(x0 + cs, imgWidth);
+      const y1 = Math.min(y0 + cs, imgHeight);
+
+      const left = x0 / imgWidth * displayedWidth;
+      const top = y0 / imgHeight * displayedHeight;
+      const width = (x1 - x0) / imgWidth * displayedWidth;
+      const height = (y1 - y0) / imgHeight * displayedHeight;
+
+      chunkOverlay.style.display = 'block';
+      chunkOverlay.style.left = left + 'px';
+      chunkOverlay.style.top = top + 'px';
+      chunkOverlay.style.width = width + 'px';
+      chunkOverlay.style.height = height + 'px';
+    }
+
+    async function fetchChunk() {
+      if (currentRow >= rows) {
+        chunkImg.src = "";
+        chunkMeta.textContent = "Done: no more chunks.";
+        chunkOverlay.style.display = 'none';
+        return;
+      }
+      const url = `/get_chunk?row=${currentRow}&col=${currentCol}`;
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        log("Error fetching chunk.");
+        return;
+      }
+      const data = await resp.json();
+      chunkImg.src = data.data_url;
+      const idx = currentRow * cols + currentCol;
+      chunkMeta.textContent = `Chunk ${idx+1} of ${rows*cols} (row ${currentRow}, col ${currentCol}, ${data.width}x${data.height})`;
+
+      // Update overlay to highlight this chunk on the enhanced image
+      updateOverlay();
+    }
+
+    function advanceChunk() {
+      currentCol++;
+      if (currentCol >= cols) {
+        currentCol = 0;
+        currentRow++;
+      }
+      fetchChunk();
+    }
+
+    async function labelCurrent(label) {
+      const payload = {
+        row: currentRow,
+        col: currentCol,
+        label: label === "NA" ? "NA" : label
+      };
+      const resp = await fetch("/label_chunk", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+      if (!resp.ok) {
+        log("Error saving chunk.");
+        return;
+      }
+      const data = await resp.json();
+      log(`Saved: ${data.saved_to}`);
+      advanceChunk();
+    }
+
+    skipBtn.addEventListener("click", () => labelCurrent("NA"));
+
+    prepForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      prepInfo.textContent = "Capturing from ESP32 and preparing for labeling...";
+      statusEl.textContent = "";
+
+      const formData = new FormData(prepForm);
+      const resp = await fetch("/prepare_labeling", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!resp.ok) {
+        const txt = await resp.text();
+        prepInfo.textContent = "Error: " + txt;
+        return;
+      }
+
+      const data = await resp.json();
+      if (data.error) {
+        prepInfo.textContent = "Error: " + data.error;
+        return;
+      }
+
+      rows = data.rows;
+      cols = data.cols;
+      currentRow = 0;
+      currentCol = 0;
+      imgWidth = data.width;
+      imgHeight = data.height;
+      chunkSize = data.chunk_size;
+
+      // Load enhanced full image
+      enhancedImg.src = "/enhanced_full?_=" + Date.now();
+      gridInfo.textContent = `Enhanced image: ${data.width}x${data.height}, grid: ${rows} rows × ${cols} cols (chunk ${data.chunk_size}px)`;
+      prepInfo.textContent = "Image captured, enhanced, and ready for labeling.";
+      labelUI.style.display = "flex";
+      createLabelButtons();
+
+      // Once the enhanced image is loaded, update the overlay for the first chunk
+      enhancedImg.onload = () => {
+        updateOverlay();
+      };
+
+      fetchChunk();
+    });
+
+    // Optional keyboard shortcuts
+    document.addEventListener("keydown", (e) => {
+      if (labelUI.style.display === "none") return;
+      const key = e.key.toUpperCase();
+      if (key === "N") { labelCurrent("NA"); }
+      else if (key === "A") { labelCurrent("A"); }
+      else if (key === "J") { labelCurrent("J"); }
+      else if (key === "Q") { labelCurrent("Q"); }
+      else if (key === "K") { labelCurrent("K"); }
+      else if (key >= "0" && key <= "9") {
+        const num = key === "0" ? "10" : key;
+        if (labels.includes(num)) labelCurrent(num);
+      }
+    });
+  </script>
+</body>
+</html>
