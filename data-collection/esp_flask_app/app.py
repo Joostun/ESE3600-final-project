@@ -79,21 +79,19 @@ def capture_frame_from_esp():
 
 def enhance_image(gray):
     """
-    Stronger enhancement in grayscale:
-    - CLAHE for local contrast
-    - aggressive unsharp mask
+    Minimal processing:
+      - DO NOT enhance in any way
+      - DO NOT sharpen
+      - DO NOT adjust contrast
+      - DO NOT detect edges
+      - ONLY flip across the y-axis (horizontal mirror)
     """
-    # CLAHE
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    eq = clahe.apply(gray)
+    # Flip horizontally (left <-> right)
+    flipped = cv2.flip(gray, 1)
 
-    # Unsharp mask (stronger weights)
-    gauss = cv2.GaussianBlur(eq, (0, 0), 1.5)
-    sharp = cv2.addWeighted(eq, 1.8, gauss, -0.8, 0)
+    return flipped
 
-    # Clip to [0,255] & uint8
-    sharp = np.clip(sharp, 0, 255).astype(np.uint8)
-    return sharp
+
 
 
 @app.route("/")
@@ -126,7 +124,7 @@ def prepare_labeling():
     """
     global current_image, current_chunk_size, current_rows, current_cols
 
-    chunk_size = int(request.form.get("chunk_size", "40"))  # default 40
+    chunk_size = int(request.form.get("chunk_size", "50"))  # default 50
 
     try:
         jpeg_bytes = capture_frame_from_esp()
