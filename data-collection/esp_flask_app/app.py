@@ -12,7 +12,7 @@ import numpy as np
 import base64
 
 # ====== CONFIGURE THIS ======
-SERIAL_PORT = "/dev/ttyACM0"  # change if needed
+SERIAL_PORT = "/dev/tty.usbmodem101"  # change if needed
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 2.0          # seconds
 TRAINING_ROOT = "training_data"
@@ -260,4 +260,4 @@ def label_chunk():
 
 if __name__ == "__main__":
     print(f"Opening serial port {SERIAL_PORT} at {BAUD_RATE}...")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)
