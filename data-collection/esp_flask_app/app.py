@@ -12,7 +12,7 @@ import numpy as np
 import base64
 
 # ====== CONFIGURE THIS ======
-SERIAL_PORT = "/dev/tty.usbmodem101"  # change if needed
+SERIAL_PORT = "/dev/ttyACM0"  # change if needed
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 2.0          # seconds
 TRAINING_ROOT = "training_data"
@@ -87,7 +87,7 @@ def enhance_image(gray):
       - ONLY flip across the y-axis (horizontal mirror)
     """
     # Flip horizontally (left <-> right)
-    flipped = cv2.flip(gray, 1)
+    flipped = cv2.flip(gray, 0)
 
     return flipped
 

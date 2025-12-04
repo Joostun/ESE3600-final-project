@@ -42,7 +42,7 @@ bool initCamera() {
   config.xclk_freq_hz = 20000000;
 
   // JPEG so we can send directly
-  config.frame_size   = FRAMESIZE_SVGA;   // 800x600; change if you want
+  config.frame_size   = FRAMESIZE_UXGA;   // 1600 x 1200; change if you want
   config.pixel_format = PIXFORMAT_JPEG;   // JPEG output
   config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location  = CAMERA_FB_IN_PSRAM;
