@@ -12,7 +12,7 @@ import numpy as np
 import base64
 
 # ====== CONFIGURE THIS ======
-SERIAL_PORT = "/dev/ttyACM0"  # change if needed
+SERIAL_PORT = "/dev/tty.usbmodem101"  # change if needed
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 2.0          # seconds
 TRAINING_ROOT = "training_data"
